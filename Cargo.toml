@@ -2,6 +2,10 @@
 name = "chai"
 version = "0.1.0"
 edition = "2024"
+description = "A framework for creating TUI SSH programs in Rust"
+license = "MIT"
+keywords = ["tui", "ssh", "framework", "ratatui", "terminal"]
+categories = ["command-line-interface", "network-programming"]
 
 [dependencies]
 anyhow = "1.0.100"

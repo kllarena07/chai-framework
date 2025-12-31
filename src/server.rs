@@ -1,4 +1,4 @@
-use crate::app::chai::ChaiApp;
+use crate::chai::ChaiApp;
 
 use std::collections::HashMap;
 use std::env;
@@ -68,13 +68,13 @@ impl std::io::Write for TerminalHandle {
 }
 
 #[derive(Clone)]
-pub struct AppServer<T: ChaiApp + Send + 'static> {
+pub struct ChaiServer<T: ChaiApp + Send + 'static> {
     clients: Arc<Mutex<HashMap<usize, (SshTerminal, T)>>>,
     port: u16,
     id: usize,
 }
 
-impl<T: ChaiApp + Send + 'static> AppServer<T> {
+impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
     pub fn new(port: u16) -> Self {
         Self {
             clients: Arc::new(Mutex::new(HashMap::new())),
@@ -135,7 +135,7 @@ impl<T: ChaiApp + Send + 'static> AppServer<T> {
     }
 }
 
-impl<T: ChaiApp + Send + 'static> Server for AppServer<T> {
+impl<T: ChaiApp + Send + 'static> Server for ChaiServer<T> {
     type Handler = Self;
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
         let s = self.clone();
@@ -144,7 +144,7 @@ impl<T: ChaiApp + Send + 'static> Server for AppServer<T> {
     }
 }
 
-impl<T: ChaiApp + Send + 'static> Handler for AppServer<T> {
+impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
     type Error = anyhow::Error;
 
     async fn channel_open_session(
@@ -275,7 +275,7 @@ impl<T: ChaiApp + Send + 'static> Handler for AppServer<T> {
     }
 }
 
-impl<T: ChaiApp + Send + 'static> Drop for AppServer<T> {
+impl<T: ChaiApp + Send + 'static> Drop for ChaiServer<T> {
     fn drop(&mut self) {
         let id = self.id;
         let clients = self.clients.clone();

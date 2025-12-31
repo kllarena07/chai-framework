@@ -1,12 +1,9 @@
+use chai::{ChaiApp, ChaiServer};
 use ratatui::{
     Frame,
     style::{Color, Style},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-
-use crate::app::chai::ChaiApp;
-
-pub mod chai;
 
 #[derive(Copy, Clone)]
 pub struct MyApp {
@@ -41,4 +38,10 @@ impl ChaiApp for MyApp {
             self.counter = 0;
         }
     }
+}
+
+#[tokio::main]
+async fn main() {
+    let mut server = ChaiServer::<MyApp>::new(2222);
+    server.run().await.expect("Failed running server");
 }

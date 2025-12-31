@@ -1,4 +1,4 @@
 /target
-authorized_keys/*
-!authorized_keys/README.md
+**/authorized_keys/*
+!**/authorized_keys/README.md
 .DS_Store
