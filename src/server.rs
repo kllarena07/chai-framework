@@ -1,8 +1,6 @@
 use crate::chai::ChaiApp;
 
 use std::collections::HashMap;
-use std::env;
-use std::path::Path;
 use std::sync::Arc;
 
 use ratatui::backend::CrosstermBackend;
@@ -10,8 +8,8 @@ use ratatui::layout::Rect;
 
 use ratatui::{Terminal, TerminalOptions, Viewport};
 use russh::keys::ssh_key::PublicKey;
+use russh::server::*;
 use russh::{Channel, ChannelId, Pty};
-use russh::{MethodKind, MethodSet, server::*};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tracing::{Level, event};
@@ -83,25 +81,7 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
         }
     }
 
-    fn load_host_keys() -> Result<russh::keys::PrivateKey, anyhow::Error> {
-        let secrets_location =
-            env::var("SECRETS_LOCATION").expect("SECRETS_LOCATION was not defined.");
-        let key_path = Path::new(&secrets_location);
-
-        if !key_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Host key not found at {}. Please generate host keys first.",
-                key_path.display()
-            ));
-        }
-
-        let key = russh::keys::PrivateKey::read_openssh_file(key_path)
-            .map_err(|e| anyhow::anyhow!("Failed to read host key: {}", e))?;
-
-        Ok(key)
-    }
-
-    pub async fn run(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn run(&mut self, config: Config) -> Result<(), anyhow::Error> {
         let clients = self.clients.clone();
         tokio::spawn(async move {
             loop {
@@ -112,22 +92,6 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
                 }
             }
         });
-
-        let mut methods = MethodSet::empty();
-        methods.push(MethodKind::None);
-
-        let host_key = Self::load_host_keys()
-            .map_err(|e| anyhow::anyhow!("Failed to load host keys: {}", e))?;
-
-        let config = Config {
-            inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
-            auth_rejection_time: std::time::Duration::from_secs(3),
-            auth_rejection_time_initial: Some(std::time::Duration::from_secs(0)),
-            keys: vec![host_key],
-            methods,
-            nodelay: true,
-            ..Default::default()
-        };
 
         event!(Level::INFO, "starting chai server on 0.0.0.0:{}", self.port);
         self.run_on_address(Arc::new(config), ("0.0.0.0", self.port))
