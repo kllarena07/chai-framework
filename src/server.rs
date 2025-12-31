@@ -15,6 +15,11 @@ use russh::{MethodKind, MethodSet, server::*};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
+const ENTER_ALT_SCREEN: &[u8] = b"\x1b[?1049h";
+const EXIT_ALT_SCREEN: &[u8] = b"\x1b[?1049l";
+const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
+const SHOW_CURSOR: &[u8] = b"\x1b[?25h";
+
 type SshTerminal = Terminal<CrosstermBackend<TerminalHandle>>;
 
 struct TerminalHandle {
@@ -120,7 +125,13 @@ impl<T: ChaiApp + Send + 'static> AppServer<T> {
             ..Default::default()
         };
 
-        self.run_on_address(Arc::new(config), ("0.0.0.0", 2222))
+        let port: u16 = env::var("PORT")
+            .unwrap_or("22".to_string())
+            .parse()
+            .unwrap_or(22);
+
+        println!("Running Chai Server on port {}", port);
+        self.run_on_address(Arc::new(config), ("0.0.0.0", port))
             .await?;
         Ok(())
     }
@@ -174,6 +185,9 @@ impl<T: ChaiApp + Send + 'static> Handler for AppServer<T> {
         match data {
             // Pressing 'q' closes the connection.
             b"q" => {
+                let reset_sequence = [EXIT_ALT_SCREEN, SHOW_CURSOR].concat();
+                let _ = session.data(channel, reset_sequence.into());
+
                 self.clients.lock().await.remove(&self.id);
                 session.close(channel)?;
             }
@@ -235,6 +249,30 @@ impl<T: ChaiApp + Send + 'static> Handler for AppServer<T> {
 
         session.channel_success(channel)?;
 
+        if let Err(e) = session
+            .handle()
+            .data(channel, ENTER_ALT_SCREEN.into())
+            .await
+        {
+            eprintln!("Failed to enter alternate screen: {:?}", e);
+        }
+
+        if let Err(e) = session.handle().data(channel, HIDE_CURSOR.into()).await {
+            eprintln!("Failed to hide cursor: {:?}", e);
+        }
+
+        Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let reset_sequence = [EXIT_ALT_SCREEN, SHOW_CURSOR].concat();
+        let _ = session.data(channel, reset_sequence.into());
+
+        self.clients.lock().await.remove(&self.id);
         Ok(())
     }
 }
