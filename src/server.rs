@@ -1,6 +1,7 @@
 use crate::chai::ChaiApp;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use ratatui::backend::CrosstermBackend;
@@ -253,4 +254,21 @@ impl<T: ChaiApp + Send + 'static> Drop for ChaiServer<T> {
             clients.remove(&id);
         });
     }
+}
+
+pub fn load_host_keys(key_name: Option<&str>) -> Result<russh::keys::PrivateKey, anyhow::Error> {
+    let key_name = key_name.unwrap_or("ed_25519");
+    let key_path = Path::new("./authorized_keys").join(key_name);
+
+    if !key_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Host key not found at {}. Please generate host keys first.",
+            key_path.display()
+        ));
+    }
+
+    let key = russh::keys::PrivateKey::read_openssh_file(&key_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read host key: {}", e))?;
+
+    Ok(key)
 }

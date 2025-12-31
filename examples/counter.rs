@@ -1,12 +1,10 @@
-use chai::{ChaiApp, ChaiServer};
+use chai::{ChaiApp, ChaiServer, load_host_keys};
 use ratatui::{
     Frame,
     style::{Color, Style},
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use russh::{MethodKind, MethodSet, server::Config};
-use std::env;
-use std::path::Path;
 
 #[derive(Copy, Clone)]
 pub struct MyApp {
@@ -43,26 +41,9 @@ impl ChaiApp for MyApp {
     }
 }
 
-fn load_host_keys() -> Result<russh::keys::PrivateKey, anyhow::Error> {
-    let hk_loc = env::var("HK_LOC").expect("HK_LOC was not defined.");
-    let key_path = Path::new(&hk_loc);
-
-    if !key_path.exists() {
-        return Err(anyhow::anyhow!(
-            "Host key not found at {}. Please generate host keys first.",
-            key_path.display()
-        ));
-    }
-
-    let key = russh::keys::PrivateKey::read_openssh_file(key_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read host key: {}", e))?;
-
-    Ok(key)
-}
-
 #[tokio::main]
 async fn main() {
-    let host_key = load_host_keys().expect("Failed to load host keys");
+    let host_key = load_host_keys(None).expect("Failed to load host keys");
     let mut methods = MethodSet::empty();
     methods.push(MethodKind::None);
 
