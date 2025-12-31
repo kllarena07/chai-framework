@@ -196,7 +196,6 @@ impl<T: ChaiApp + Send + 'static> Handler for AppServer<T> {
                 self.clients.lock().await.remove(&self.id);
                 session.close(channel)?;
             }
-            // Only the client with the id sees the counter reset.
             _ => {
                 let mut clients = self.clients.lock().await;
                 let (_, app) = clients.get_mut(&self.id).unwrap();
