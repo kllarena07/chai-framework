@@ -1,4 +1,4 @@
-use chai::{ChaiApp, ChaiServer, load_host_keys};
+use chai_framework::{ChaiApp, ChaiServer, load_host_keys};
 use ratatui::{
     Frame,
     style::{Color, Style},
