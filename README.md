@@ -3,11 +3,11 @@
 A framework for creating TUI SSH programs in Rust, powered by [ratatui](https://github.com/ratatui/ratatui) and [russh](https://github.com/Eugeny/russh).
 
 ## Why Chai
-The Chai framework makes it easy to simply export your ratatui TUI apps to an ssh server.
+The Chai framework makes it easy to host your ratatui TUI apps on an ssh server.
 
-Encapsulate your TUI state within a stateful struct. Subsequently, implement the `ChaiApp` trait for this struct to satisfy the required interface abstractions. For examples, see [here](https://github.com/kllarena07/chai/tree/main/examples).
+First, encapsulate your TUI program within a stateful struct. Then, implement the `ChaiApp` trait for this struct to satisfy the required interface abstractions. After that, it's simple plug-and-play by providing your new struct to the `ChaiServer`.
 
-After that, it's simple plug-and-play by providing your new struct to a `ChaiServer`.
+For examples, see [here](https://github.com/kllarena07/chai/tree/main/examples).
 ```
 mod app;
 use app::MyApp; // your TUI program
