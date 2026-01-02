@@ -13,7 +13,6 @@ use russh::server::*;
 use russh::{Channel, ChannelId, Pty};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tracing::{Level, event};
 
 const ENTER_ALT_SCREEN: &[u8] = b"\x1b[?1049h";
 const EXIT_ALT_SCREEN: &[u8] = b"\x1b[?1049l";
@@ -29,13 +28,19 @@ struct TerminalHandle {
 }
 
 impl TerminalHandle {
-    async fn start(handle: Handle, channel_id: ChannelId) -> Self {
+    async fn start(handle: Handle, channel_id: ChannelId, username: String, id: usize) -> Self {
         let (sender, mut receiver) = unbounded_channel::<Vec<u8>>();
+        let username_clone = username.clone();
+        let id_clone = id;
         tokio::spawn(async move {
             while let Some(data) = receiver.recv().await {
                 let result = handle.data(channel_id, data.into()).await;
                 if result.is_err() {
-                    eprintln!("Failed to send data: {result:?}");
+                    tracing::error!(
+                        "failed to send data for user {} (id: {}): {result:?}",
+                        username_clone,
+                        id_clone
+                    );
                 }
             }
         });
@@ -71,6 +76,7 @@ pub struct ChaiServer<T: ChaiApp + Send + 'static> {
     clients: Arc<Mutex<HashMap<usize, (SshTerminal, T)>>>,
     port: u16,
     id: usize,
+    username: String,
 }
 
 impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
@@ -79,10 +85,20 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
             clients: Arc::new(Mutex::new(HashMap::new())),
             port,
             id: 0,
+            username: String::new(),
         }
     }
 
     pub async fn run(&mut self, config: Config) -> Result<(), anyhow::Error> {
+        let subscriber = tracing_subscriber::fmt()
+            .compact()
+            .with_file(true)
+            .with_line_number(true)
+            .with_target(true)
+            .finish();
+
+        tracing::subscriber::set_global_default(subscriber).unwrap();
+
         let clients = self.clients.clone();
         tokio::spawn(async move {
             loop {
@@ -99,10 +115,30 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
             }
         });
 
-        event!(Level::INFO, "starting chai server on 0.0.0.0:{}", self.port);
+        tracing::info!("starting server on 0.0.0.0:{}", self.port);
         self.run_on_address(Arc::new(config), ("0.0.0.0", self.port))
             .await?;
         Ok(())
+    }
+}
+
+impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
+    fn send_data_or_log(
+        &mut self,
+        session: &mut Session,
+        channel: ChannelId,
+        data: &[u8],
+        description: &str,
+    ) {
+        if let Err(e) = session.data(channel, data.into()) {
+            tracing::error!(
+                "failed to {} for user {} (id: {}): {:?}",
+                description,
+                self.username,
+                self.id,
+                e
+            );
+        }
     }
 }
 
@@ -123,7 +159,14 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         channel: Channel<Msg>,
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        let terminal_handle = TerminalHandle::start(session.handle(), channel.id()).await;
+        tracing::info!("{} (id: {}) opened a channel", self.username, self.id);
+        let terminal_handle = TerminalHandle::start(
+            session.handle(),
+            channel.id(),
+            self.username.clone(),
+            self.id,
+        )
+        .await;
 
         let backend = CrosstermBackend::new(terminal_handle);
 
@@ -141,11 +184,13 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         Ok(true)
     }
 
-    async fn auth_publickey(&mut self, _: &str, _: &PublicKey) -> Result<Auth, Self::Error> {
+    async fn auth_publickey(&mut self, user: &str, _: &PublicKey) -> Result<Auth, Self::Error> {
+        self.username = user.to_string();
         Ok(Auth::Accept)
     }
 
-    async fn auth_none(&mut self, _: &str) -> Result<Auth, Self::Error> {
+    async fn auth_none(&mut self, user: &str) -> Result<Auth, Self::Error> {
+        self.username = user.to_string();
         Ok(Auth::Accept)
     }
 
@@ -158,13 +203,8 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         match data {
             // Pressing 'q' closes the connection.
             b"q" => {
-                if let Err(e) = session.data(channel, EXIT_ALT_SCREEN.into()) {
-                    eprintln!("Failed to exit alternate screen: {:?}", e);
-                }
-
-                if let Err(e) = session.data(channel, SHOW_CURSOR.into()) {
-                    eprintln!("Failed to show cursor: {:?}", e);
-                }
+                self.send_data_or_log(session, channel, EXIT_ALT_SCREEN, "exit alternate screen");
+                self.send_data_or_log(session, channel, SHOW_CURSOR, "show cursor");
 
                 self.clients.lock().await.remove(&self.id);
                 session.close(channel)?;
@@ -220,19 +260,16 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
             height: row_height as u16,
         };
 
-        let mut clients = self.clients.lock().await;
-        let (terminal, _) = clients.get_mut(&self.id).unwrap();
-        terminal.resize(rect)?;
+        {
+            let mut clients = self.clients.lock().await;
+            let (terminal, _) = clients.get_mut(&self.id).unwrap();
+            terminal.resize(rect)?;
+        }
 
         session.channel_success(channel)?;
 
-        if let Err(e) = session.data(channel, ENTER_ALT_SCREEN.into()) {
-            eprintln!("Failed to enter alternate screen: {:?}", e);
-        }
-
-        if let Err(e) = session.data(channel, HIDE_CURSOR.into()) {
-            eprintln!("Failed to hide cursor: {:?}", e);
-        }
+        self.send_data_or_log(session, channel, ENTER_ALT_SCREEN, "enter alternate screen");
+        self.send_data_or_log(session, channel, HIDE_CURSOR, "hide cursor");
 
         Ok(())
     }
@@ -242,6 +279,7 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        tracing::info!("{} (id: {}) closed a channel", self.username, self.id);
         let reset_sequence = [EXIT_ALT_SCREEN, SHOW_CURSOR].concat();
         let _ = session.data(channel, reset_sequence.into());
 
