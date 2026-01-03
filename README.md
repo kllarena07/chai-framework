@@ -10,7 +10,7 @@ cargo add chai-framework tokio
 2. Configure your main function, see below
 
 ## Why Chai
-The Chai framework makes it easy to host your ratatui TUI apps on an SSH server.
+The Chai framework makes it easy to host your ratatui apps on an SSH server.
 
 First, encapsulate your TUI program within a stateful struct. Then, implement the `ChaiApp` trait for this struct to satisfy the required interface abstractions. After that, it's simple plug-and-play by providing your new struct to the `ChaiServer`.
 ```
