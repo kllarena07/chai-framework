@@ -2,6 +2,13 @@
 
 A framework for creating TUI SSH programs in Rust, powered by [ratatui](https://github.com/ratatui/ratatui) and [russh](https://github.com/Eugeny/russh).
 
+## Getting Started
+1. Add the necessary crates:
+```
+cargo add chai-framework tokio
+```
+2. Configure your main function, see below
+
 ## Why Chai
 The Chai framework makes it easy to host your ratatui TUI apps on an SSH server.
 
