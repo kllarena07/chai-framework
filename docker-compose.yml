@@ -1,0 +1,13 @@
+services:
+  chai-server:
+    build: .
+    ports:
+      - "2222:2222"
+    stdin_open: true
+    tty: true
+    secrets:
+      - source: host_key
+        target: /run/secret/authorized_keys/id_ed25519
+secrets:
+  host_key:
+    file: ./authorized_keys/id_ed25519

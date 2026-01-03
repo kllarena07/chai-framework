@@ -44,7 +44,7 @@ impl ChaiApp for MyApp {
 #[tokio::main]
 async fn main() {
     let host_key =
-        load_host_keys("./examples/authorized_keys/ed_25519").expect("Failed to load host keys");
+        load_host_keys("./examples/authorized_keys/id_ed25519").expect("Failed to load host keys");
     let mut methods = MethodSet::empty();
     methods.push(MethodKind::None);
 
