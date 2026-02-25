@@ -67,8 +67,7 @@ mod app;
 use app::MyApp;
 
 use chai_framework::{ChaiServer, load_host_keys};
-use russh::server::Config;
-use std::sync::Arc;
+use russh::{MethodKind, MethodSet, server::Config};
 
 #[tokio::main]
 async fn main() {
@@ -76,17 +75,21 @@ async fn main() {
     let host_key = load_host_keys("/home/your_user/.ssh/id_ed25519")
         .expect("Failed to load host key");
 
-    let mut config = Config::default();
-    config.keys.push(host_key);
+    let mut methods = MethodSet::empty();
+    methods.push(MethodKind::None);
 
-    let config = Arc::new(config);
+    let config = Config {
+        keys: vec![host_key],
+        methods,
+        ..Default::default()
+    };
 
     let mut server = ChaiServer::<MyApp>::new(2222)
         .with_max_connections(32)      // optional (default: 100)
         .with_channel_buffer(1024);    // optional (default: 64)
 
     server
-        .run((*config).clone())
+        .run(config)
         .await
         .expect("Failed running server");
 }
