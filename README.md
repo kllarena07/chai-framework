@@ -12,9 +12,7 @@ A framework for creating TUI SSH programs in Rust, powered by [ratatui](https://
 cargo add chai-framework tokio tracing-subscriber
 ```
 
-
 ### 2. Implement your TUI app
-
 
 ```rust
 use chai_framework::ChaiApp;
@@ -52,8 +50,8 @@ impl ChaiApp for MyApp {
 
 ---
 
-
 ## Why Chai
+
 The Chai framework makes it easy to host your ratatui apps on an SSH server.
 
 First, encapsulate your TUI program within a stateful struct. Then, implement the `ChaiApp` trait for this struct to satisfy the required interface abstractions. After that, it's simple plug-and-play by providing your new struct to the `ChaiServer`.
@@ -64,7 +62,7 @@ First, encapsulate your TUI program within a stateful struct. Then, implement th
 
 ```rust
 mod app;
-use app::MyApp;
+use app::MyApp; // your TUI app
 
 use chai_framework::{ChaiServer, load_host_keys};
 use russh::{MethodKind, MethodSet, server::Config};
@@ -94,7 +92,9 @@ async fn main() {
         .expect("Failed running server");
 }
 ```
+
 ---
+
 ## Logging
 
 Chai uses `tracing`.
@@ -109,9 +109,7 @@ RUST_LOG=info cargo run
 
 ## Examples
 
-
 For examples, see [here](https://github.com/kllarena07/chai/tree/main/examples). Simply run `cargo run --example [example name]`.
-
 
 ---
 
