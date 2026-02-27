@@ -14,7 +14,10 @@ pub struct MyApp {
 
 impl ChaiApp for MyApp {
     fn new() -> Self {
-        Self { counter: 0, quit: false }
+        Self {
+            counter: 0,
+            quit: false,
+        }
     }
     fn update(&mut self) {
         self.counter += 1;

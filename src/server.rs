@@ -15,22 +15,6 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
         }
     }
 
-    /// Helper to get a mutable reference to a client, logging a warning if not found, but only needs terminal.
-    fn get_terminal_mut<'a>(
-        &self,
-        clients: &'a mut HashMap<usize, (SshTerminal, T)>,
-        context: &str,
-        id: usize,
-    ) -> Option<&'a mut SshTerminal> {
-        match clients.get_mut(&id) {
-            Some((terminal, _)) => Some(terminal),
-            None => {
-                tracing::warn!("No client found for id {} in {}", id, context);
-                None
-            }
-        }
-    }
-
     /// Helper to draw the app, logging error if it fails.
     fn try_draw(&self, terminal: &mut SshTerminal, app: &mut T) {
         if let Err(e) = terminal.draw(|f| app.draw(f)) {
@@ -49,7 +33,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 
 use ratatui::{Terminal, TerminalOptions, Viewport};
@@ -63,6 +46,9 @@ const ENTER_ALT_SCREEN: &[u8] = b"\x1b[?1049h";
 const EXIT_ALT_SCREEN: &[u8] = b"\x1b[?1049l";
 const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
 const SHOW_CURSOR: &[u8] = b"\x1b[?25h";
+const CLEAR_ALL: &[u8] = b"\x1b[2J";
+
+use ratatui::backend::CrosstermBackend;
 
 type SshTerminal = Terminal<CrosstermBackend<TerminalHandle>>;
 
@@ -87,11 +73,12 @@ impl TerminalHandle {
             while let Some(data) = receiver.recv().await {
                 let result = handle.data(channel_id, data.into()).await;
                 if result.is_err() {
-                    tracing::error!(
-                        "failed to send data for user {} (id: {}): {result:?}",
+                    tracing::debug!(
+                        "channel closed for user {} (id: {}), stopping data forwarding",
                         username_clone,
                         id_clone
                     );
+                    break;
                 }
             }
         });
@@ -138,6 +125,8 @@ pub struct ChaiServer<T: ChaiApp + Send + 'static> {
     username: String,
     max_connections: usize,
     channel_buffer: usize,
+    cols: u32,
+    rows: u32,
 }
 
 impl<T: ChaiApp + Send + 'static> Clone for ChaiServer<T> {
@@ -149,6 +138,8 @@ impl<T: ChaiApp + Send + 'static> Clone for ChaiServer<T> {
             username: self.username.clone(),
             max_connections: self.max_connections,
             channel_buffer: self.channel_buffer,
+            cols: 80,
+            rows: 24,
         }
     }
 }
@@ -162,6 +153,8 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
             username: String::new(),
             max_connections: DEFAULT_MAX_CONNECTIONS,
             channel_buffer: DEFAULT_CHANNEL_BUFFER,
+            cols: 80,
+            rows: 24,
         }
     }
 
@@ -199,12 +192,15 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
                 for (_, (terminal, app)) in clients.lock().await.iter_mut() {
-                    terminal
-                        .draw(|f| {
-                            app.update();
-                            app.draw(f);
-                        })
-                        .unwrap();
+                    if let Err(e) = terminal.draw(|f| {
+                        app.update();
+                        app.draw(f);
+                    }) {
+                        tracing::error!(
+                            "Background terminal draw error in periodic updater: {:?}",
+                            e
+                        );
+                    }
                 }
             }
         });
@@ -250,44 +246,20 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
 
     async fn channel_open_session(
         &mut self,
-        channel: Channel<Msg>,
-        session: &mut Session,
+        _channel: Channel<Msg>,
+        _session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        {
-            let clients = self.clients.lock().await;
-            if clients.len() >= self.max_connections {
-                tracing::warn!(
-                    "max connections ({}) reached, rejecting session for {}",
-                    self.max_connections,
-                    self.username
-                );
-                return Ok(false);
-            }
+        let clients = self.clients.lock().await;
+        if clients.len() >= self.max_connections {
+            tracing::warn!(
+                "max connections ({}) reached, rejecting session for {}",
+                self.max_connections,
+                self.username
+            );
+            return Ok(false);
         }
 
         tracing::info!("{} (id: {}) opened a channel", self.username, self.id);
-        let terminal_handle = TerminalHandle::start(
-            session.handle(),
-            channel.id(),
-            self.username.clone(),
-            self.id,
-            self.channel_buffer,
-        )
-        .await;
-
-        let backend = CrosstermBackend::new(terminal_handle);
-
-        // the correct viewport area will be set when the client request a pty
-        let options = TerminalOptions {
-            viewport: Viewport::Fixed(Rect::default()),
-        };
-
-        let terminal = Terminal::with_options(backend, options)?;
-        let app = T::new();
-
-        let mut clients = self.clients.lock().await;
-        clients.insert(self.id, (terminal, app));
-
         Ok(true)
     }
 
@@ -307,10 +279,10 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // Input validation: Only allow printable ASCII and control chars
+        // Input validation: Only allow printable ASCII, control chars, and escape sequences
         if !data
             .iter()
-            .all(|&b| b == b'\n' || b == b'\r' || (b >= 0x20 && b <= 0x7e))
+            .all(|&b| b == b'\n' || b == b'\r' || b == 0x1b || (0x20..=0x7e).contains(&b))
         {
             tracing::warn!(
                 "Received invalid input data from user {} (id: {})",
@@ -339,7 +311,6 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         if should_quit {
             self.send_data_or_log(session, channel, EXIT_ALT_SCREEN, "exit alternate screen");
             self.send_data_or_log(session, channel, SHOW_CURSOR, "show cursor");
-            self.clients.lock().await.remove(&self.id);
             session.close(channel)?;
         }
 
@@ -348,39 +319,11 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
 
     async fn window_change_request(
         &mut self,
-        _: ChannelId,
-        col_width: u32,
-        row_height: u32,
-        _: u32,
-        _: u32,
-        _: &mut Session,
-    ) -> Result<(), Self::Error> {
-        let rect = Rect {
-            x: 0,
-            y: 0,
-            width: col_width as u16,
-            height: row_height as u16,
-        };
-
-        let mut clients = self.clients.lock().await;
-        if let Some(terminal) =
-            self.get_terminal_mut(&mut clients, "window_change_request", self.id)
-        {
-            terminal.resize(rect)?;
-        }
-
-        Ok(())
-    }
-
-    async fn pty_request(
-        &mut self,
         channel: ChannelId,
-        _: &str,
         col_width: u32,
         row_height: u32,
         _: u32,
         _: u32,
-        _: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         let rect = Rect {
@@ -390,28 +333,99 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
             height: row_height as u16,
         };
 
-        {
-            let mut clients = self.clients.lock().await;
-            if let Some(terminal) =
-                self.get_terminal_mut(&mut clients, "pty_request (resize)", self.id)
+        let mut clients = self.clients.lock().await;
+        if let Some((_, mut app)) = clients.remove(&self.id) {
+            // Recreate the terminal at the new size instead of calling
+            // terminal.resize()
+            let terminal_handle = TerminalHandle::start(
+                session.handle(),
+                channel,
+                self.username.clone(),
+                self.id,
+                self.channel_buffer,
+            )
+            .await;
+
+            let backend = CrosstermBackend::new(terminal_handle);
+            let options = TerminalOptions {
+                viewport: Viewport::Fixed(rect),
+            };
+            let mut terminal = Terminal::with_options(backend, options)?;
+
+            // Queue a full screen clear into the sink (no flush yet) so that
+            // it ships in the same message as the first draw frame.
             {
-                terminal.resize(rect)?;
+                use std::io::Write;
+                terminal.backend_mut().write_all(CLEAR_ALL)?;
             }
+
+            self.try_draw(&mut terminal, &mut app);
+            clients.insert(self.id, (terminal, app));
         }
+
+        Ok(())
+    }
+
+    async fn pty_request(
+        &mut self,
+        _channel: ChannelId,
+        _: &str,
+        col_width: u32,
+        row_height: u32,
+        _: u32,
+        _: u32,
+        _: &[(Pty, u32)],
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.cols = col_width;
+        self.rows = row_height;
+        Ok(())
+    }
+
+    async fn shell_request(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let handle = session.handle();
+
+        let terminal_handle = TerminalHandle::start(
+            handle,
+            channel,
+            self.username.clone(),
+            self.id,
+            self.channel_buffer,
+        )
+        .await;
+
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: self.cols as u16,
+            height: self.rows as u16,
+        };
+
+        let backend = CrosstermBackend::new(terminal_handle);
+        let options = TerminalOptions {
+            viewport: Viewport::Fixed(rect),
+        };
+        let mut terminal = Terminal::with_options(backend, options)?;
+        let mut app = T::new();
+
+        // Send escape sequences through the terminal backend so they share
+        // the same ordered mpsc channel as draw output.
+        {
+            use std::io::Write;
+            let backend = terminal.backend_mut();
+            backend.write_all(ENTER_ALT_SCREEN)?;
+            backend.write_all(HIDE_CURSOR)?;
+            backend.flush()?;
+        }
+
+        self.try_draw(&mut terminal, &mut app);
+        self.clients.lock().await.insert(self.id, (terminal, app));
 
         session.channel_success(channel)?;
-
-        self.send_data_or_log(session, channel, ENTER_ALT_SCREEN, "enter alternate screen");
-        self.send_data_or_log(session, channel, HIDE_CURSOR, "hide cursor");
-
-        {
-            let mut clients = self.clients.lock().await;
-            if let Some((terminal, app)) =
-                self.get_client_mut(&mut clients, "pty_request (draw)", self.id)
-            {
-                self.try_draw(terminal, app);
-            }
-        }
 
         Ok(())
     }
@@ -435,7 +449,6 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
 
 impl<T: ChaiApp + Send + 'static> Drop for ChaiServer<T> {
     fn drop(&mut self) {
-        // Synchronous cleanup: block on removing the client
         let id = self.id;
         let clients = self.clients.clone();
         if let Ok(mut guard) = clients.try_lock() {
@@ -473,7 +486,7 @@ pub fn load_host_keys(path: &str) -> Result<russh::keys::PrivateKey, anyhow::Err
         ));
     }
 
-    let key = russh::keys::PrivateKey::read_openssh_file(&key_path)
+    let key = russh::keys::PrivateKey::read_openssh_file(key_path)
         .map_err(|e| anyhow::anyhow!("Failed to read host key: {}", e))?;
 
     Ok(key)

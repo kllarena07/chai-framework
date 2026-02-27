@@ -9,7 +9,7 @@ categories = ["command-line-interface", "network-programming"]
 
 [dependencies]
 anyhow = "1.0.100"
-ratatui = "0.30.0"
+ratatui = { version = "0.30.0", features = ["crossterm"] }
 russh = "0.57.0"
 tokio = "1.48.0"
 tracing = "0.1.44"
