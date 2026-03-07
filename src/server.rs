@@ -127,6 +127,7 @@ pub struct ChaiServer<T: ChaiApp + Send + 'static> {
     channel_buffer: usize,
     cols: u32,
     rows: u32,
+    tick_rate: std::time::Duration,
 }
 
 impl<T: ChaiApp + Send + 'static> Clone for ChaiServer<T> {
@@ -140,6 +141,7 @@ impl<T: ChaiApp + Send + 'static> Clone for ChaiServer<T> {
             channel_buffer: self.channel_buffer,
             cols: 80,
             rows: 24,
+            tick_rate: self.tick_rate,
         }
     }
 }
@@ -155,6 +157,7 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
             channel_buffer: DEFAULT_CHANNEL_BUFFER,
             cols: 80,
             rows: 24,
+            tick_rate: std::time::Duration::from_secs(1),
         }
     }
 
@@ -168,6 +171,11 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
     /// Frames are dropped (not buffered) when the buffer is full. Default: 64.
     pub fn with_channel_buffer(mut self, size: usize) -> Self {
         self.channel_buffer = size;
+        self
+    }
+    // sets tick rate for the periodic update loop, default 1sec
+    pub fn with_tick_rate(mut self, duration: std::time::Duration) -> Self {
+        self.tick_rate = duration;
         self
     }
 
@@ -187,9 +195,10 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
         let _ = tracing::subscriber::set_global_default(subscriber);
 
         let clients = self.clients.clone();
+        let tick_rate = self.tick_rate;
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(tick_rate).await;
 
                 for (_, (terminal, app)) in clients.lock().await.iter_mut() {
                     if let Err(e) = terminal.draw(|f| {
