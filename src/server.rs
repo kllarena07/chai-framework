@@ -416,6 +416,7 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         };
         let mut terminal = Terminal::with_options(backend, options)?;
         let mut app = T::new();
+        app.on_connect(&self.username);
 
         // Send escape sequences through the terminal backend so they share
         // the same ordered mpsc channel as draw output.
@@ -445,6 +446,9 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         let _ = session.data(channel, reset_sequence.into());
 
         let mut clients = self.clients.lock().await;
+        if let Some((_, app)) = clients.get_mut(&self.id) {
+            app.on_disconnect(&self.username);
+        }
         if clients.remove(&self.id).is_none() {
             tracing::warn!("No client found for id {} in channel_close", self.id);
         }
