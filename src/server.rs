@@ -297,12 +297,17 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
             if let Some((terminal, app)) =
                 self.get_client_mut(&mut clients, "data handler", self.id)
             {
-                app.handle_input(data);
-                let quit = app.should_quit();
-                if !quit {
-                    self.try_draw(terminal, app);
+                // ctrl+c: quit immediately unless the app wants to handle it itself
+                if data == b"\x03" && !app.capture_ctrl_c() {
+                    true
+                } else {
+                    app.handle_input(data);
+                    let quit = app.should_quit();
+                    if !quit {
+                        self.try_draw(terminal, app);
+                    }
+                    quit
                 }
-                quit
             } else {
                 false
             }

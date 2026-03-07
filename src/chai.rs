@@ -10,4 +10,8 @@ pub trait ChaiApp {
     fn should_quit(&self) -> bool {
         false
     }
+    // ctrl c
+    fn capture_ctrl_c(&self) -> bool {
+        false
+    }
 }
