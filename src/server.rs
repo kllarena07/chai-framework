@@ -127,6 +127,7 @@ pub struct ChaiServer<T: ChaiApp + Send + 'static> {
     channel_buffer: usize,
     cols: u32,
     rows: u32,
+    tick_rate: std::time::Duration,
 }
 
 impl<T: ChaiApp + Send + 'static> Clone for ChaiServer<T> {
@@ -140,6 +141,7 @@ impl<T: ChaiApp + Send + 'static> Clone for ChaiServer<T> {
             channel_buffer: self.channel_buffer,
             cols: 80,
             rows: 24,
+            tick_rate: self.tick_rate,
         }
     }
 }
@@ -155,6 +157,7 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
             channel_buffer: DEFAULT_CHANNEL_BUFFER,
             cols: 80,
             rows: 24,
+            tick_rate: std::time::Duration::from_secs(1),
         }
     }
 
@@ -168,6 +171,11 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
     /// Frames are dropped (not buffered) when the buffer is full. Default: 64.
     pub fn with_channel_buffer(mut self, size: usize) -> Self {
         self.channel_buffer = size;
+        self
+    }
+    // sets tick rate for the periodic update loop, default 1sec
+    pub fn with_tick_rate(mut self, duration: std::time::Duration) -> Self {
+        self.tick_rate = duration;
         self
     }
 
@@ -187,9 +195,10 @@ impl<T: ChaiApp + Send + 'static> ChaiServer<T> {
         let _ = tracing::subscriber::set_global_default(subscriber);
 
         let clients = self.clients.clone();
+        let tick_rate = self.tick_rate;
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(tick_rate).await;
 
                 for (_, (terminal, app)) in clients.lock().await.iter_mut() {
                     if let Err(e) = terminal.draw(|f| {
@@ -279,11 +288,9 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // Input validation: Only allow printable ASCII, control chars, and escape sequences
-        if !data
-            .iter()
-            .all(|&b| b == b'\n' || b == b'\r' || b == 0x1b || (0x20..=0x7e).contains(&b))
-        {
+        // Input validation: only allow ASCII bytes (including control characters like Ctrl+C);
+        // reject any non-ASCII input.
+        if !data.iter().all(|&b| b.is_ascii()) {
             tracing::warn!(
                 "Received invalid input data from user {} (id: {})",
                 self.username,
@@ -297,12 +304,17 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
             if let Some((terminal, app)) =
                 self.get_client_mut(&mut clients, "data handler", self.id)
             {
-                app.handle_input(data);
-                let quit = app.should_quit();
-                if !quit {
-                    self.try_draw(terminal, app);
+                // ctrl+c: quit immediately unless the app wants to handle it itself
+                if data == b"\x03" && !app.capture_ctrl_c() {
+                    true
+                } else {
+                    app.handle_input(data);
+                    let quit = app.should_quit();
+                    if !quit {
+                        self.try_draw(terminal, app);
+                    }
+                    quit
                 }
-                quit
             } else {
                 false
             }
@@ -411,6 +423,7 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         };
         let mut terminal = Terminal::with_options(backend, options)?;
         let mut app = T::new();
+        app.on_connect(&self.username);
 
         // Send escape sequences through the terminal backend so they share
         // the same ordered mpsc channel as draw output.
@@ -440,6 +453,9 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         let _ = session.data(channel, reset_sequence.into());
 
         let mut clients = self.clients.lock().await;
+        if let Some((_, app)) = clients.get_mut(&self.id) {
+            app.on_disconnect(&self.username);
+        }
         if clients.remove(&self.id).is_none() {
             tracing::warn!("No client found for id {} in channel_close", self.id);
         }
@@ -491,3 +507,4 @@ pub fn load_host_keys(path: &str) -> Result<russh::keys::PrivateKey, anyhow::Err
 
     Ok(key)
 }
+

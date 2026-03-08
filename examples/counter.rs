@@ -34,7 +34,7 @@ impl ChaiApp for MyApp {
             .alignment(ratatui::layout::Alignment::Center)
             .style(style);
         let block = Block::default()
-            .title("Press 'c' to reset  |  'q' to quit")
+            .title("'c' to reset  |  'q' to quit  |  ctrl+c to quit")
             .borders(Borders::ALL);
         f.render_widget(paragraph.block(block), area);
     }
@@ -42,6 +42,7 @@ impl ChaiApp for MyApp {
         match data {
             b"c" => self.counter = 0,
             b"q" | b"Q" => self.quit = true,
+            // ctrl+c (\x03) is handled automatically by the framework
             _ => {}
         }
     }
@@ -66,6 +67,6 @@ async fn main() {
         ..Default::default()
     };
 
-    let mut server = ChaiServer::<MyApp>::new(2222);
+    let mut server = ChaiServer::<MyApp>::new(2222).with_tick_rate(std::time::Duration::from_millis(250));
     server.run(config).await.expect("Failed running server");
 }

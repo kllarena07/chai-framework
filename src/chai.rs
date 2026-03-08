@@ -10,4 +10,14 @@ pub trait ChaiApp {
     fn should_quit(&self) -> bool {
         false
     }
+    // ctrl c
+    fn capture_ctrl_c(&self) -> bool {
+        false
+    }
+    /// called when a client connects. uname is provided.
+    fn on_connect(&mut self, _username: &str) {}
+
+    /// called just before a client disconnects.
+    fn on_disconnect(&mut self, _username: &str) {}
+    
 }
