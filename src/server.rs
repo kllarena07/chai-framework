@@ -288,11 +288,9 @@ impl<T: ChaiApp + Send + 'static> Handler for ChaiServer<T> {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // Input validation: Only allow printable ASCII, control chars, and escape sequences
-        if !data
-            .iter()
-            .all(|&b| b == b'\n' || b == b'\r' || b == 0x1b || (0x20..=0x7e).contains(&b))
-        {
+        // Input validation: only allow ASCII bytes (including control characters like Ctrl+C);
+        // reject any non-ASCII input.
+        if !data.iter().all(|&b| b.is_ascii()) {
             tracing::warn!(
                 "Received invalid input data from user {} (id: {})",
                 self.username,
@@ -509,3 +507,4 @@ pub fn load_host_keys(path: &str) -> Result<russh::keys::PrivateKey, anyhow::Err
 
     Ok(key)
 }
+
