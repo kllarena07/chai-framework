@@ -2,7 +2,7 @@
 
 A framework for creating TUI SSH programs in Rust, powered by [ratatui](https://github.com/ratatui/ratatui) and [russh](https://github.com/Eugeny/russh).
 
-Note: Chai uses [semantic versioning](https://www.geeksforgeeks.org/software-engineering/introduction-semantic-versioning/). Please be aware of this when using the framework
+**Note:** Chai uses [semantic versioning](https://www.geeksforgeeks.org/software-engineering/introduction-semantic-versioning/). Please be aware of this when using the framework
 
 ---
 
