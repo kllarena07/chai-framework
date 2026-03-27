@@ -4,6 +4,14 @@ A framework for creating TUI SSH programs in Rust, powered by [ratatui](https://
 
 ---
 
+## Why Chai
+
+The Chai framework makes it easy to host your ratatui apps on an SSH server.
+
+First, encapsulate your TUI program within a stateful struct. Then, implement the `ChaiApp` trait for this struct to satisfy the required interface abstractions. After that, it's simple plug-and-play by providing your new struct to the `ChaiServer`.
+
+---
+
 ## Getting Started
 
 ### 1. Add dependencies
@@ -11,6 +19,8 @@ A framework for creating TUI SSH programs in Rust, powered by [ratatui](https://
 ```sh
 cargo add chai-framework tokio tracing-subscriber
 ```
+
+**Note:** Chai uses [semantic versioning](https://www.geeksforgeeks.org/software-engineering/introduction-semantic-versioning/). Please be aware of this when using the framework
 
 ### 2. Implement your TUI app
 
@@ -47,14 +57,6 @@ impl ChaiApp for MyApp {
     }
 }
 ```
-
----
-
-## Why Chai
-
-The Chai framework makes it easy to host your ratatui apps on an SSH server.
-
-First, encapsulate your TUI program within a stateful struct. Then, implement the `ChaiApp` trait for this struct to satisfy the required interface abstractions. After that, it's simple plug-and-play by providing your new struct to the `ChaiServer`.
 
 ---
 
