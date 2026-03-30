@@ -67,6 +67,7 @@ async fn main() {
         ..Default::default()
     };
 
-    let mut server = ChaiServer::<MyApp>::new(2222).with_tick_rate(std::time::Duration::from_millis(250));
+    let mut server =
+        ChaiServer::<MyApp>::new(2222).with_tick_rate(std::time::Duration::from_millis(250));
     server.run(config).await.expect("Failed running server");
 }

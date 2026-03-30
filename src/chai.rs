@@ -19,5 +19,4 @@ pub trait ChaiApp {
 
     /// called just before a client disconnects.
     fn on_disconnect(&mut self, _username: &str) {}
-    
 }
