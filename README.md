@@ -115,6 +115,10 @@ For examples, see [here](https://github.com/kllarena07/chai/tree/main/examples).
 
 ---
 
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, including code formatting requirements.
+
 ## Contributors
 
 <a href="https://github.com/kllarena07/chai-framework/graphs/contributors">

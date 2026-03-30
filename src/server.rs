@@ -507,4 +507,3 @@ pub fn load_host_keys(path: &str) -> Result<russh::keys::PrivateKey, anyhow::Err
 
     Ok(key)
 }
-
